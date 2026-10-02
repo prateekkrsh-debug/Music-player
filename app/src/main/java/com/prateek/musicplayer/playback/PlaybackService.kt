@@ -1,5 +1,6 @@
 package com.prateek.musicplayer.playback
 
+import android.app.PendingIntent
 import android.content.Intent
 import android.media.AudioManager
 import android.os.Bundle
@@ -10,6 +11,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
+import com.prateek.musicplayer.MainActivity
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
@@ -41,7 +43,14 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
         player.repeatMode = Player.REPEAT_MODE_OFF
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(openApp)
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(
                     session: MediaSession,
@@ -90,6 +99,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        super.onUpdateNotification(session, true)
+    }
+
 
     override fun onDestroy() {
         sleepRunnable?.let(handler::removeCallbacks)
