@@ -10,6 +10,8 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.Settings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -103,6 +105,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
@@ -263,7 +266,7 @@ private fun MusicShell() {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     NavItem("home", "Home", Icons.Default.Home, tab) { tab = it }
                     NavItem("songs", "Songs", Icons.Default.MusicNote, tab) { tab = it }
-                    NavItem("playlists", "Playlists", Icons.Default.QueueMusic, tab) { tab = it }
+                    NavItem("playlists", "Soundkeep", Icons.Default.QueueMusic, tab) { tab = it }
                     NavItem("folders", "Folders", Icons.Default.Folder, tab) { tab = it }
                     NavItem("settings", "Settings", Icons.Default.Settings, tab) { tab = it }
                 }
@@ -280,7 +283,7 @@ private fun MusicShell() {
                     }
                 })
                 "songs" -> SongList(library, query, current?.id, { query = it }, { play(library, library.indexOfFirst { song -> song.id == it.id }.coerceAtLeast(0)) }, { selected = it })
-                "playlists" -> PlaylistScreen(playlists, favorites.toSet(), library, { ids -> play(library.filter { it.id in ids }, 0) }, { scope.launch { app.database.dao().insertPlaylist(PlaylistEntity(name = it)) } }, { scope.launch { app.database.dao().deletePlaylist(it) } })
+                "playlists" -> SoundkeepPage()
                 "folders" -> GroupScreen(library.groupBy { it.folder }, excluded, { play(it, 0) }, { folder, include ->
                     scope.launch {
                         app.setExcluded(if (include) excluded - folder else excluded + folder)
@@ -586,7 +589,7 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { Text("Version 2.5", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        item { Text("Version 2.6", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
         item { Text("Credit @Prateek/Lucky", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
@@ -888,4 +891,21 @@ private fun shuffleUpcoming(player: MediaController) {
     player.setMediaItems(listOf(items[currentIndex]) + upcoming, 0, position)
     player.prepare()
     if (wasPlaying) player.play()
+}
+
+
+@Composable
+private fun SoundkeepPage() {
+    AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { context ->
+            WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                webViewClient = WebViewClient()
+                loadUrl("https://songs-prateek.grok.me")
+            }
+        },
+    )
 }
