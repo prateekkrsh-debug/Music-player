@@ -12,6 +12,7 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -302,6 +304,15 @@ private fun MusicShell() {
         }
     }
 
+    BackHandler(enabled = nowOpen || queueOpen || selected != null || playlistTarget != null) {
+        when {
+            playlistTarget != null -> playlistTarget = null
+            selected != null -> selected = null
+            queueOpen -> queueOpen = false
+            nowOpen -> nowOpen = false
+        }
+    }
+
     if (nowOpen && current != null && controller != null) {
         NowPlaying(
             song = current,
@@ -541,7 +552,7 @@ private fun SettingsScreen(
 @Composable
 private fun NowPlaying(song: Song, player: MediaController, progress: Float, position: Long, favorite: Boolean, onBack: () -> Unit, onFavorite: () -> Unit, onQueue: () -> Unit) {
     val duration = if (player.duration > 0) player.duration else song.durationMs
-    Column(Modifier.fillMaxSize().background(Color.Black).padding(horizontal = 22.dp, vertical = 12.dp)) {
+    Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding().padding(horizontal = 22.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
             Text("Now playing", color = Color(0xFFBDBDBD), modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
