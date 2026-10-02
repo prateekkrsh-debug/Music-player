@@ -93,6 +93,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -261,7 +262,7 @@ private fun MusicShell() {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
                 "home" -> HomeScreen(library, recent, most, favorites.toSet(), scanning, error, { play(library, library.indexOfFirst { song -> song.id == it.id }.coerceAtLeast(0)) }, { tab = it })
-                "songs" -> SongList(library, query, { query = it }, { play(library, library.indexOfFirst { song -> song.id == it.id }.coerceAtLeast(0)) }, { selected = it })
+                "songs" -> SongList(library, query, current?.id, { query = it }, { play(library, library.indexOfFirst { song -> song.id == it.id }.coerceAtLeast(0)) }, { selected = it })
                 "playlists" -> PlaylistScreen(playlists, favorites.toSet(), library, { ids -> play(library.filter { it.id in ids }, 0) }, { scope.launch { app.database.dao().insertPlaylist(PlaylistEntity(name = it)) } }, { scope.launch { app.database.dao().deletePlaylist(it) } })
                 "folders" -> GroupScreen(library.groupBy { it.folder }, excluded, { play(it, 0) }, { folder, include ->
                     scope.launch {
@@ -453,16 +454,16 @@ private fun Quick(label: String, count: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SongList(songs: List<Song>, query: String, onQuery: (String) -> Unit, onPlay: (Song) -> Unit, onMore: (Song) -> Unit) {
+private fun SongList(songs: List<Song>, query: String, playingId: Long?, onQuery: (String) -> Unit, onPlay: (Song) -> Unit, onMore: (Song) -> Unit) {
     val shown = songs.filter { query.isBlank() || it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true) }
-    LazyColumn(contentPadding = PaddingValues(16.dp)) {
+    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp)) {
         item {
             OutlinedTextField(query, onQuery, modifier = Modifier.fillMaxWidth(), leadingIcon = { Icon(Icons.Default.Search, null) }, label = { Text("Search songs, artists, albums") }, singleLine = true)
             Text("${shown.size} songs", modifier = Modifier.padding(vertical = 12.dp))
         }
         if (shown.isEmpty()) item { Text("No matching songs.") }
         items(shown, key = { it.id }) { song ->
-            SongRow(song, { onPlay(song) }, { onMore(song) })
+            SongRow(song, song.id == playingId, { onPlay(song) }, { onMore(song) })
         }
     }
 }
@@ -601,20 +602,31 @@ private fun NowPlaying(song: Song, player: MediaController, progress: Float, pos
                 Icon(Icons.Default.Repeat, "Repeat", tint = if (player.repeatMode == Player.REPEAT_MODE_OFF) Color(0xFF8A8A8A) else Color.White)
             }
         }
-        TextButton(onClick = onQueue, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Queue", color = Color(0xFFBDBDBD)) }
+        Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+            TextButton(onClick = onQueue) { Text("Queue", color = Color(0xFFBDBDBD)) }
+        }
     }
 }
 
 @Composable
 private fun MiniPlayer(song: Song, playing: Boolean, onOpen: () -> Unit, onToggle: () -> Unit, onNext: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Artwork(song, Modifier.size(42.dp))
+    Row(
+        Modifier
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .shadow(18.dp, RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFF2A2A2E))
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Artwork(song, Modifier.size(44.dp))
         Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-            Text(song.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text(song.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color(0xFFBDBDBD))
         }
-        IconButton(onClick = onToggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, "Play") }
-        IconButton(onClick = onNext) { Icon(Icons.Default.SkipNext, "Next") }
+        IconButton(onClick = onToggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, "Play", tint = Color.White) }
+        IconButton(onClick = onNext) { Icon(Icons.Default.SkipNext, "Next", tint = Color.White) }
     }
 }
 
@@ -654,11 +666,19 @@ private fun QueueSheet(player: MediaController, onClose: () -> Unit) {
 }
 
 @Composable
-private fun SongRow(song: Song, onClick: () -> Unit, onMore: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun SongRow(song: Song, playing: Boolean, onClick: () -> Unit, onMore: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (playing) Color(0xFF3A1E22) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Artwork(song, Modifier.size(48.dp))
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = if (playing) Color(0xFFFF8A80) else Color.Unspecified)
             Text("${song.artist} · ${formatTime(song.durationMs)}", maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         IconButton(onClick = onMore) { Icon(Icons.Default.MoreVert, "More") }
