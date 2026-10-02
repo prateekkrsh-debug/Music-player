@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -400,14 +401,13 @@ private fun HomeScreen(
                 Quick("Folders", songs.map { it.folder }.distinct().size) { onTab("folders") }
             }
         }
-        section("Recently played", songs.filter { song -> recent.any { it.songId == song.id } }.take(8), onPlay)
-        section("Most played", songs.filter { song -> most.any { it.songId == song.id } }.take(8), onPlay)
-        section("Recently added", songs.sortedByDescending { it.dateAdded }.take(8), onPlay)
+        songSection("Recently played", songs.filter { song -> recent.any { it.songId == song.id } }.take(8), onPlay)
+        songSection("Most played", songs.filter { song -> most.any { it.songId == song.id } }.take(8), onPlay)
+        songSection("Recently added", songs.sortedByDescending { it.dateAdded }.take(8), onPlay)
     }
 }
 
-@Composable
-private fun section(title: String, songs: List<Song>, onPlay: (Song) -> Unit) {
+private fun LazyListScope.songSection(title: String, songs: List<Song>, onPlay: (Song) -> Unit) {
     if (songs.isEmpty()) return
     item {
         Text(title, fontWeight = FontWeight.SemiBold)
@@ -633,7 +633,7 @@ private fun Artwork(song: Song, modifier: Modifier) {
 
 @Composable
 private fun NavItem(id: String, label: String, icon: ImageVector, selected: String, onClick: (String) -> Unit) {
-    NavigationBarItem(selected = selected == id, onClick = { onClick(id) }, icon = { Icon(icon, label) }, label = { Text(label) })
+    androidx.compose.material3.NavigationBarItem(selected = selected == id, onClick = { onClick(id) }, icon = { Icon(icon, label) }, label = { Text(label) })
 }
 
 @Composable
