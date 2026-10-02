@@ -152,6 +152,7 @@ private fun MusicShell() {
     var error by remember { mutableStateOf<String?>(null) }
     var tab by remember { mutableStateOf("home") }
     var nowOpen by remember { mutableStateOf(false) }
+    var playingSong by remember { mutableStateOf<Song?>(null) }
     var query by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<Song?>(null) }
     var queueOpen by remember { mutableStateOf(false) }
@@ -180,6 +181,8 @@ private fun MusicShell() {
     val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     DisposableEffect(Unit) {
+        val serviceIntent = Intent(context, PlaybackService::class.java)
+        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent) else context.startService(serviceIntent)
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         val future = MediaController.Builder(context, token).buildAsync()
         future.addListener({
@@ -213,7 +216,8 @@ private fun MusicShell() {
         songs.filter { it.folder !in excluded }.sortedWith(songComparator(sort, sortAsc))
     }
     val currentId = controller?.currentMediaItem?.mediaId?.toLongOrNull()
-    val current = library.firstOrNull { it.id == currentId } ?: songs.firstOrNull { it.id == currentId }
+    val fromPlayer = library.firstOrNull { it.id == currentId } ?: songs.firstOrNull { it.id == currentId }
+    val current = fromPlayer ?: playingSong
 
     fun play(list: List<Song>, start: Int) {
         val player = controller ?: return
@@ -223,17 +227,19 @@ private fun MusicShell() {
         ) {
             notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        val song = list[start.coerceIn(0, list.lastIndex)]
+        playingSong = song
+        nowOpen = true
         player.setMediaItems(list.map { it.toMediaItem() }, start.coerceIn(0, list.lastIndex), 0L)
         player.prepare()
+        player.playWhenReady = true
         player.play()
-        val song = list[start.coerceIn(0, list.lastIndex)]
         scope.launch {
             val old = app.database.dao().historyFor(song.id)
             app.database.dao().upsertHistory(
                 HistoryEntity(song.id, System.currentTimeMillis(), (old?.playCount ?: 0) + 1),
             )
         }
-        nowOpen = true
     }
 
     if (!welcomeDone || !permissionGranted) {
@@ -352,7 +358,13 @@ private fun MusicShell() {
         }, { deleteSong(context, song.uri); selected = null })
     }
     if (queueOpen && controller != null) {
-        QueueSheet(controller!!) { queueOpen = false }
+        QueueSheet(controller!!, {
+            controller?.stop()
+            controller?.clearMediaItems()
+            playingSong = null
+            nowOpen = false
+            queueOpen = false
+        }) { queueOpen = false }
     }
     playlistTarget?.let { song ->
         AlertDialog(
@@ -546,7 +558,7 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { Text("Version 2.0", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        item { Text("Version 2.2", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
     }
 }
 
@@ -652,11 +664,11 @@ private fun SongSheet(song: Song, favorite: Boolean, onPlay: () -> Unit, onNext:
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun QueueSheet(player: MediaController, onClose: () -> Unit) {
+private fun QueueSheet(player: MediaController, onClear: () -> Unit, onClose: () -> Unit) {
     val count = player.mediaItemCount
     ModalBottomSheet(onDismissRequest = onClose) {
         LazyColumn(Modifier.navigationBarsPadding().padding(16.dp)) {
-            item { TextButton({ player.clearMediaItems(); onClose() }) { Text("Clear queue") } }
+            item { TextButton(onClick = onClear) { Text("Clear queue") } }
             items(count) { index ->
                 val item = player.getMediaItemAt(index)
                 Text(item.mediaMetadata.title?.toString() ?: "Song", modifier = Modifier.fillMaxWidth().clickable { player.seekTo(index, 0) }.padding(vertical = 8.dp))
