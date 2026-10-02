@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
@@ -585,7 +586,8 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { Text("Version 2.4", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        item { Text("Version 2.5", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        item { Text("Credit @Prateek/Lucky", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
@@ -615,9 +617,14 @@ private fun NowPlaying(song: Song, player: MediaController, progress: Float, pos
             Text(formatTime(position), color = Color(0xFFBDBDBD), fontSize = 12.sp)
             Text(formatTime(duration), color = Color(0xFFBDBDBD), fontSize = 12.sp)
         }
+        var shuffled by remember(song.id) { mutableStateOf(player.shuffleModeEnabled) }
+        var repeatMode by remember(song.id) { mutableIntStateOf(player.repeatMode) }
         Row(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            IconButton({ player.shuffleModeEnabled = !player.shuffleModeEnabled }) {
-                Icon(Icons.Default.Shuffle, "Shuffle", tint = if (player.shuffleModeEnabled) Color.White else Color(0xFF8A8A8A))
+            IconButton({
+                shuffled = !shuffled
+                if (shuffled) shuffleUpcoming(player) else player.shuffleModeEnabled = false
+            }) {
+                Icon(Icons.Default.Shuffle, "Shuffle", tint = if (shuffled) Color.White else Color(0xFF8A8A8A))
             }
             IconButton({ player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0L)) }) {
                 Icon(Icons.Default.Replay10, "Back 10 seconds", tint = Color.White)
@@ -634,13 +641,18 @@ private fun NowPlaying(song: Song, player: MediaController, progress: Float, pos
                 Icon(Icons.Default.Forward10, "Forward 10 seconds", tint = Color.White)
             }
             IconButton({
-                player.repeatMode = when (player.repeatMode) {
+                repeatMode = when (repeatMode) {
                     Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
                     Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
                     else -> Player.REPEAT_MODE_OFF
                 }
+                player.repeatMode = repeatMode
             }) {
-                Icon(Icons.Default.Repeat, "Repeat", tint = if (player.repeatMode == Player.REPEAT_MODE_OFF) Color(0xFF8A8A8A) else Color.White)
+                Icon(
+                    if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                    "Repeat",
+                    tint = if (repeatMode == Player.REPEAT_MODE_OFF) Color(0xFF8A8A8A) else Color.White,
+                )
             }
         }
         Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
@@ -858,4 +870,22 @@ private suspend fun fillMissingTags(context: android.content.Context, songs: Lis
         delay(120)
     }
     onBusy(false)
+}
+
+
+private fun shuffleUpcoming(player: MediaController) {
+    val count = player.mediaItemCount
+    if (count < 2) {
+        player.shuffleModeEnabled = false
+        return
+    }
+    val currentIndex = player.currentMediaItemIndex.coerceIn(0, count - 1)
+    val items = (0 until count).map { player.getMediaItemAt(it) }
+    val upcoming = items.filterIndexed { index, _ -> index != currentIndex }.shuffled()
+    val position = player.currentPosition.coerceAtLeast(0L)
+    val wasPlaying = player.isPlaying
+    player.shuffleModeEnabled = false
+    player.setMediaItems(listOf(items[currentIndex]) + upcoming, 0, position)
+    player.prepare()
+    if (wasPlaying) player.play()
 }
