@@ -9,6 +9,7 @@ data class Song(
     val id: Long,
     val title: String,
     val artist: String,
+    val album: String,
     val durationMs: Long,
     val folder: String,
     val uri: Uri,
@@ -20,6 +21,7 @@ fun scanSongs(context: Context): List<Song> {
         MediaStore.Audio.Media._ID,
         MediaStore.Audio.Media.TITLE,
         MediaStore.Audio.Media.ARTIST,
+        MediaStore.Audio.Media.ALBUM,
         MediaStore.Audio.Media.DURATION,
         MediaStore.Audio.Media.RELATIVE_PATH,
         MediaStore.Audio.Media.DISPLAY_NAME,
@@ -37,21 +39,51 @@ fun scanSongs(context: Context): List<Song> {
         val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
         val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
         val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+        val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
         val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
         val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
         val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
 
         while (cursor.moveToNext()) {
             val id = cursor.getLong(idCol)
-            val title = cursor.getString(titleCol)?.ifBlank { null }
-                ?: cursor.getString(nameCol)
-                ?: "Unknown"
-            val artist = cursor.getString(artistCol)?.ifBlank { null } ?: "Unknown artist"
-            val duration = cursor.getLong(durationCol)
+            val title = cleanLabel(
+                cursor.getString(titleCol) ?: cursor.getString(nameCol),
+                "Unknown",
+            )
             val folder = cursor.getString(pathCol)?.trimEnd('/')?.ifBlank { null } ?: "Unknown folder"
             val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
-            songs += Song(id, title, artist, duration, folder, uri)
+            songs += Song(
+                id = id,
+                title = title,
+                artist = cleanLabel(cursor.getString(artistCol), "Unknown"),
+                album = cleanLabel(cursor.getString(albumCol), "Unknown album"),
+                durationMs = cursor.getLong(durationCol),
+                folder = folder,
+                uri = uri,
+            )
         }
     }
     return songs
+}
+
+fun defaultExcludedFolders(songs: List<Song>): Set<String> {
+    return songs.map { it.folder }
+        .distinct()
+        .filter { folder ->
+            val value = folder.lowercase()
+            value.contains("whatsapp") ||
+                value.contains("recording") ||
+                value.contains("ringtone") ||
+                value.contains("notification") ||
+                value.contains("voice")
+        }
+        .toSet()
+}
+
+private fun cleanLabel(value: String?, fallback: String): String {
+    val cleaned = value?.trim().orEmpty()
+    if (cleaned.isBlank() || cleaned.equals("<unknown>", true) || cleaned.equals("unknown", true)) {
+        return fallback
+    }
+    return cleaned
 }
