@@ -201,6 +201,15 @@ private fun MusicShell() {
             emptyList()
         }
         scanning = false
+        TagCache.load(context)
+        songs.filter { TagCache.tags[it.id] == null }.forEach { song ->
+            val found = withContext(Dispatchers.IO) { runCatching { TagLookup.search(song.title) }.getOrNull() }
+            if (found != null) {
+                TagCache.tags = TagCache.tags + (song.id to found)
+                TagCache.save(context)
+            }
+            delay(150)
+        }
     }
     LaunchedEffect(controller) {
         val player = controller ?: return@LaunchedEffect
@@ -558,7 +567,7 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { Text("Version 2.2", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        item { Text("Version 2.3", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
     }
 }
 
@@ -574,8 +583,10 @@ private fun NowPlaying(song: Song, player: MediaController, progress: Float, pos
             }
         }
         Artwork(song, Modifier.fillMaxWidth().padding(top = 18.dp).aspectRatio(1f))
-        Text(song.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 22.dp))
-        Text(song.artist, color = Color(0xFFBDBDBD), fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+        val tag = TagCache.tags[song.id]
+        Text(tag?.title ?: song.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 22.dp))
+        Text(tag?.artist ?: song.artist, color = Color(0xFFBDBDBD), fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+        if (!tag?.album.isNullOrBlank()) Text(tag?.album.orEmpty(), color = Color(0xFF8A8A8A), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Slider(
             value = progress.coerceIn(0f, 1f),
             onValueChange = { player.seekTo((duration.coerceAtLeast(1L) * it).toLong()) },
@@ -615,7 +626,7 @@ private fun NowPlaying(song: Song, player: MediaController, progress: Float, pos
             }
         }
         Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
-            TextButton(onClick = onQueue) { Text("Queue", color = Color(0xFFBDBDBD)) }
+            IconButton(onClick = onQueue) { Icon(Icons.Default.QueueMusic, "Queue", tint = Color.White) }
         }
     }
 }
@@ -634,8 +645,9 @@ private fun MiniPlayer(song: Song, playing: Boolean, onOpen: () -> Unit, onToggl
     ) {
         Artwork(song, Modifier.size(44.dp))
         Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = Color.White)
-            Text(song.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color(0xFFBDBDBD))
+            val tag = TagCache.tags[song.id]
+            Text(tag?.title ?: song.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text(tag?.artist ?: song.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color(0xFFBDBDBD))
         }
         IconButton(onClick = onToggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, "Play", tint = Color.White) }
         IconButton(onClick = onNext) { Icon(Icons.Default.SkipNext, "Next", tint = Color.White) }
@@ -690,8 +702,9 @@ private fun SongRow(song: Song, playing: Boolean, onClick: () -> Unit, onMore: (
     ) {
         Artwork(song, Modifier.size(48.dp))
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = if (playing) Color(0xFFFF8A80) else Color.Unspecified)
-            Text("${song.artist} · ${formatTime(song.durationMs)}", maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val tag = TagCache.tags[song.id]
+            Text(tag?.title ?: song.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = if (playing) Color(0xFFFF8A80) else Color.Unspecified)
+            Text("${tag?.artist ?: song.artist} · ${formatTime(song.durationMs)}", maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         IconButton(onClick = onMore) { Icon(Icons.Default.MoreVert, "More") }
     }
@@ -713,9 +726,10 @@ private fun Artwork(song: Song, modifier: Modifier) {
             }.getOrNull()
         }
     }
-    val model = embedded ?: albumArtUri(song.albumId)
+    val remote = TagCache.tags[song.id]?.artUrl
+    val model = embedded ?: remote ?: albumArtUri(song.albumId)
     Box(modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xFF1C1C1C)), contentAlignment = Alignment.Center) {
-        if (embedded == null) Icon(Icons.Default.MusicNote, null, tint = Color(0xFF6E6E6E), modifier = Modifier.size(48.dp))
+        if (embedded == null && remote.isNullOrBlank()) Icon(Icons.Default.MusicNote, null, tint = Color(0xFF6E6E6E), modifier = Modifier.size(48.dp))
         AsyncImage(model = model, contentDescription = song.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
     }
 }
@@ -760,7 +774,12 @@ private fun Song.toMediaItem(): MediaItem {
         .setMediaId(id.toString())
         .setUri(uri)
         .setMediaMetadata(
-            MediaMetadata.Builder().setTitle(title).setArtist(artist).setAlbumTitle(album).setArtworkUri(albumArtUri(albumId)).build(),
+            MediaMetadata.Builder()
+                .setTitle(TagCache.tags[id]?.title ?: title)
+                .setArtist(TagCache.tags[id]?.artist ?: artist)
+                .setAlbumTitle(TagCache.tags[id]?.album ?: album)
+                .setArtworkUri(TagCache.tags[id]?.artUrl?.let { Uri.parse(it) } ?: albumArtUri(albumId))
+                .build(),
         )
         .build()
 }
