@@ -236,7 +236,7 @@ private fun MusicShell() {
                 current?.let {
                     MiniPlayer(it, controller?.isPlaying == true, { nowOpen = true }, { toggle(controller) }, { controller?.seekToNext() })
                 }
-                NavigationBar {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     NavItem("home", "Home", Icons.Default.Home, tab) { tab = it }
                     NavItem("songs", "Songs", Icons.Default.MusicNote, tab) { tab = it }
                     NavItem("playlists", "Playlists", Icons.Default.QueueMusic, tab) { tab = it }
@@ -633,7 +633,10 @@ private fun Artwork(song: Song, modifier: Modifier) {
 
 @Composable
 private fun NavItem(id: String, label: String, icon: ImageVector, selected: String, onClick: (String) -> Unit) {
-    androidx.compose.material3.NavigationBarItem(selected = selected == id, onClick = { onClick(id) }, icon = { Icon(icon, label) }, label = { Text(label) })
+    Column(Modifier.clickable { onClick(id) }.padding(horizontal = 6.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, label, tint = if (selected == id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, maxLines = 1, color = if (selected == id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
