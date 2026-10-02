@@ -10,6 +10,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import com.prateek.musicplayer.MainActivity
 import androidx.media3.session.MediaSessionService
@@ -32,6 +33,11 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider.Builder(this)
+                .setNotificationId(41)
+                .build(),
+        )
         val player = ExoPlayer.Builder(this)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -79,7 +85,12 @@ class PlaybackService : MediaSessionService() {
                 }
             })
             .build()
-        registerReceiver(noisyReceiver, android.content.IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+        val noisy = android.content.IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(noisyReceiver, noisy, android.content.Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(noisyReceiver, noisy)
+        }
     }
 
     private val endListener = object : Player.Listener {
