@@ -181,8 +181,7 @@ private fun MusicShell() {
     val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     DisposableEffect(Unit) {
-        val serviceIntent = Intent(context, PlaybackService::class.java)
-        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent) else context.startService(serviceIntent)
+        context.startService(Intent(context, PlaybackService::class.java))
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         val future = MediaController.Builder(context, token).buildAsync()
         future.addListener({
@@ -230,6 +229,7 @@ private fun MusicShell() {
         val song = list[start.coerceIn(0, list.lastIndex)]
         playingSong = song
         nowOpen = true
+        context.startService(Intent(context, PlaybackService::class.java))
         player.setMediaItems(list.map { it.toMediaItem() }, start.coerceIn(0, list.lastIndex), 0L)
         player.prepare()
         player.playWhenReady = true
