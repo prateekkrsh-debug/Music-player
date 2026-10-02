@@ -10,8 +10,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.Settings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -105,7 +103,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
@@ -185,6 +182,21 @@ private fun MusicShell() {
         if (it) scope.launch { app.setWelcomeDone() }
     }
     val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        scope.launch {
+            val picked = withContext(Dispatchers.IO) { scanFolderTree(context, uri) }
+            if (picked.isEmpty()) {
+                Toast.makeText(context, "No songs in that folder", Toast.LENGTH_SHORT).show()
+            } else {
+                songs = (songs + picked).distinctBy { it.uri }
+                Toast.makeText(context, "Added ${picked.size} songs", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     DisposableEffect(Unit) {
         context.startService(Intent(context, PlaybackService::class.java))
@@ -266,7 +278,6 @@ private fun MusicShell() {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     NavItem("home", "Home", Icons.Default.Home, tab) { tab = it }
                     NavItem("songs", "Songs", Icons.Default.MusicNote, tab) { tab = it }
-                    NavItem("playlists", "Soundkeep", Icons.Default.QueueMusic, tab) { tab = it }
                     NavItem("folders", "Folders", Icons.Default.Folder, tab) { tab = it }
                     NavItem("settings", "Settings", Icons.Default.Settings, tab) { tab = it }
                 }
@@ -283,12 +294,15 @@ private fun MusicShell() {
                     }
                 })
                 "songs" -> SongList(library, query, current?.id, { query = it }, { play(library, library.indexOfFirst { song -> song.id == it.id }.coerceAtLeast(0)) }, { selected = it })
-                "playlists" -> SoundkeepPage()
-                "folders" -> GroupScreen(library.groupBy { it.folder }, excluded, { play(it, 0) }, { folder, include ->
-                    scope.launch {
-                        app.setExcluded(if (include) excluded - folder else excluded + folder)
-                    }
-                })
+                "folders" -> GroupScreen(
+                    songs.groupBy { it.folder },
+                    excluded,
+                    { play(it, 0) },
+                    { folder, include ->
+                        scope.launch { app.setExcluded(if (include) excluded - folder else excluded + folder) }
+                    },
+                    { folderPicker.launch(null) },
+                )
                 else -> SettingsScreen(
                     theme = app.themeMode.collectAsState(initial = "system").value,
                     amoled = app.amoled.collectAsState(initial = false).value,
@@ -456,7 +470,7 @@ private fun HomeScreen(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Quick("Songs", songs.size) { onTab("songs") }
-                Quick("Favorites", favorites.size) { onTab("playlists") }
+                Quick("Favorites", favorites.size) { onTab("songs") }
                 Quick("Folders", songs.map { it.folder }.distinct().size) { onTab("folders") }
             }
         }
@@ -512,17 +526,42 @@ private fun SongList(songs: List<Song>, query: String, playingId: Long?, onQuery
 }
 
 @Composable
-private fun GroupScreen(groups: Map<String, List<Song>>, excluded: Set<String>, onPlay: (List<Song>) -> Unit, onToggle: (String, Boolean) -> Unit) {
-    LazyColumn(contentPadding = PaddingValues(16.dp)) {
-        items(groups.keys.sorted(), key = { it }) { name ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).clickable { onPlay(groups[name].orEmpty()) }) {
-                    Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${groups[name].orEmpty().size} songs", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = name !in excluded, onCheckedChange = { onToggle(name, it) })
-            }
+private fun GroupScreen(
+    groups: Map<String, List<Song>>,
+    excluded: Set<String>,
+    onPlay: (List<Song>) -> Unit,
+    onToggle: (String, Boolean) -> Unit,
+    onBrowse: () -> Unit,
+) {
+    val visible = groups.keys.filter { it !in excluded }.sorted()
+    val hidden = (groups.keys.filter { it in excluded } + excluded.filter { it !in groups.keys }).distinct().sorted()
+    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text("Choose a folder", fontWeight = FontWeight.SemiBold)
+            Text("Opens the phone file manager so you can add one folder.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = onBrowse, modifier = Modifier.padding(top = 8.dp)) { Text("Browse files") }
         }
+        item { Text("Folders", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp)) }
+        if (visible.isEmpty()) item { Text("No visible folders.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        items(visible, key = { "show-$it" }) { name ->
+            FolderRow(name, groups[name].orEmpty().size, true, { onPlay(groups[name].orEmpty()) }) { onToggle(name, false) }
+        }
+        item { Text("Hidden folders", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp)) }
+        if (hidden.isEmpty()) item { Text("No hidden folders. Turn a folder off to hide it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        items(hidden, key = { "hide-$it" }) { name ->
+            FolderRow(name, groups[name].orEmpty().size, false, { onPlay(groups[name].orEmpty()) }) { onToggle(name, true) }
+        }
+    }
+}
+
+@Composable
+private fun FolderRow(name: String, count: Int, shown: Boolean, onPlay: () -> Unit, onToggle: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).clickable(onClick = onPlay)) {
+            Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("$count songs", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = shown, onCheckedChange = onToggle)
     }
 }
 
@@ -589,7 +628,7 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { Text("Version 2.6", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        item { Text("Version 2.7", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
         item { Text("Credit @Prateek/Lucky", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
@@ -894,18 +933,33 @@ private fun shuffleUpcoming(player: MediaController) {
 }
 
 
-@Composable
-private fun SoundkeepPage() {
-    AndroidView(
-        modifier = Modifier.fillMaxSize(),
-        factory = { context ->
-            WebView(context).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.mediaPlaybackRequiresUserGesture = false
-                webViewClient = WebViewClient()
-                loadUrl("https://songs-prateek.grok.me")
+
+
+private fun scanFolderTree(context: android.content.Context, tree: Uri): List<Song> {
+    val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, tree) ?: return emptyList()
+    val songs = mutableListOf<Song>()
+    fun walk(dir: androidx.documentfile.provider.DocumentFile, path: String) {
+        dir.listFiles().forEach { file ->
+            val name = file.name ?: return@forEach
+            if (file.isDirectory) walk(file, "$path/$name")
+            else if (file.type?.startsWith("audio/") == true || name.endsWith(".mp3", true) || name.endsWith(".m4a", true) || name.endsWith(".wav", true)) {
+                songs += Song(
+                    id = file.uri.toString().hashCode().toLong() and 0xffffffffL,
+                    title = cleanLabel(name.substringBeforeLast('.'), "Unknown"),
+                    artist = "Unknown",
+                    album = "Unknown album",
+                    genre = "Unknown",
+                    durationMs = 0L,
+                    folder = path,
+                    albumId = 0L,
+                    dateAdded = System.currentTimeMillis() / 1000,
+                    sizeBytes = file.length().coerceAtLeast(0L),
+                    year = 0,
+                    uri = file.uri,
+                )
             }
-        },
-    )
+        }
+    }
+    walk(root, root.name ?: "Selected folder")
+    return songs
 }
