@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -149,6 +150,7 @@ private fun MusicShell() {
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var songs by remember { mutableStateOf(emptyList<Song>()) }
     var scanning by remember { mutableStateOf(false) }
+    var fillingTags by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var tab by remember { mutableStateOf("home") }
     var nowOpen by remember { mutableStateOf(false) }
@@ -202,14 +204,7 @@ private fun MusicShell() {
         }
         scanning = false
         TagCache.load(context)
-        songs.filter { TagCache.tags[it.id] == null }.forEach { song ->
-            val found = withContext(Dispatchers.IO) { runCatching { TagLookup.search(song.title) }.getOrNull() }
-            if (found != null) {
-                TagCache.tags = TagCache.tags + (song.id to found)
-                TagCache.save(context)
-            }
-            delay(150)
-        }
+        fillMissingTags(context, songs) { fillingTags = it }
     }
     LaunchedEffect(controller) {
         val player = controller ?: return@LaunchedEffect
@@ -276,7 +271,13 @@ private fun MusicShell() {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
-                "home" -> HomeScreen(library, recent, most, favorites.toSet(), scanning, error, { play(library, library.indexOfFirst { song -> song.id == it.id }.coerceAtLeast(0)) }, { tab = it })
+                "home" -> HomeScreen(library, recent, most, favorites.toSet(), scanning, fillingTags, error, { play(library, library.indexOfFirst { song -> song.id == it.id }.coerceAtLeast(0)) }, { tab = it }, {
+                    scope.launch {
+                        TagCache.tags = emptyMap()
+                        context.filesDir.resolve("music-tags.txt").delete()
+                        fillMissingTags(context, songs, force = true) { fillingTags = it }
+                    }
+                })
                 "songs" -> SongList(library, query, current?.id, { query = it }, { play(library, library.indexOfFirst { song -> song.id == it.id }.coerceAtLeast(0)) }, { selected = it })
                 "playlists" -> PlaylistScreen(playlists, favorites.toSet(), library, { ids -> play(library.filter { it.id in ids }, 0) }, { scope.launch { app.database.dao().insertPlaylist(PlaylistEntity(name = it)) } }, { scope.launch { app.database.dao().deletePlaylist(it) } })
                 "folders" -> GroupScreen(library.groupBy { it.folder }, excluded, { play(it, 0) }, { folder, include ->
@@ -428,13 +429,24 @@ private fun HomeScreen(
     most: List<HistoryEntity>,
     favorites: Set<Long>,
     scanning: Boolean,
+    fillingTags: Boolean,
     error: String?,
     onPlay: (Song) -> Unit,
     onTab: (String) -> Unit,
+    onRefreshTags: () -> Unit,
 ) {
+    val tags = TagCache.tags
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Library", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Library", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                IconButton(onClick = onRefreshTags, enabled = !fillingTags) {
+                    Icon(Icons.Default.Refresh, "Find album details")
+                }
+            }
+        }
         if (scanning) item { Text("Scanning music") }
+        if (fillingTags) item { Text("Finding artist, album, and cover art") }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
         if (songs.isEmpty() && !scanning) item { Text("No music found. Add MP3 files to the phone, then rescan in Settings.") }
         item {
@@ -456,10 +468,11 @@ private fun LazyListScope.songSection(title: String, songs: List<Song>, onPlay: 
         Text(title, fontWeight = FontWeight.SemiBold)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(songs, key = { it.id }) { song ->
+                val tag = TagCache.tags[song.id]
                 Column(Modifier.width(120.dp).clickable { onPlay(song) }) {
                     Artwork(song, Modifier.size(120.dp))
-                    Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(song.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tag?.title ?: song.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(tag?.artist ?: song.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -476,7 +489,12 @@ private fun Quick(label: String, count: Int, onClick: () -> Unit) {
 
 @Composable
 private fun SongList(songs: List<Song>, query: String, playingId: Long?, onQuery: (String) -> Unit, onPlay: (Song) -> Unit, onMore: (Song) -> Unit) {
-    val shown = songs.filter { query.isBlank() || it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true) }
+    val tags = TagCache.tags
+    val shown = songs.filter { song ->
+        val tag = tags[song.id]
+        query.isBlank() || song.title.contains(query, true) || song.artist.contains(query, true) || song.album.contains(query, true) ||
+            tag?.title?.contains(query, true) == true || tag?.artist?.contains(query, true) == true || tag?.album?.contains(query, true) == true
+    }
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp)) {
         item {
             OutlinedTextField(query, onQuery, modifier = Modifier.fillMaxWidth(), leadingIcon = { Icon(Icons.Default.Search, null) }, label = { Text("Search songs, artists, albums") }, singleLine = true)
@@ -567,7 +585,7 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { Text("Version 2.3", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        item { Text("Version 2.4", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
     }
 }
 
@@ -826,4 +844,18 @@ private fun deleteSong(context: android.content.Context, uri: Uri) {
     }.onFailure {
         Toast.makeText(context, "Could not delete: ${it.message}", Toast.LENGTH_LONG).show()
     }
+}
+
+
+private suspend fun fillMissingTags(context: android.content.Context, songs: List<Song>, force: Boolean = false, onBusy: (Boolean) -> Unit) {
+    onBusy(true)
+    songs.filter { force || TagCache.tags[it.id] == null }.forEach { song ->
+        val found = withContext(Dispatchers.IO) { runCatching { TagLookup.search(song.title) }.getOrNull() }
+        if (found != null) {
+            TagCache.tags = TagCache.tags + (song.id to found)
+            TagCache.save(context)
+        }
+        delay(120)
+    }
+    onBusy(false)
 }
