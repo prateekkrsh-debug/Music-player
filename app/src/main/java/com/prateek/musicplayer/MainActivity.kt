@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -52,6 +53,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -65,6 +69,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -80,6 +85,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -92,6 +98,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -103,8 +110,11 @@ import coil.compose.AsyncImage
 import com.prateek.musicplayer.data.HistoryEntity
 import com.prateek.musicplayer.data.PlaylistEntity
 import com.prateek.musicplayer.playback.PlaybackService
+import android.media.MediaMetadataRetriever
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -530,34 +540,57 @@ private fun SettingsScreen(
 
 @Composable
 private fun NowPlaying(song: Song, player: MediaController, progress: Float, position: Long, favorite: Boolean, onBack: () -> Unit, onFavorite: () -> Unit, onQueue: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(20.dp)) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-        Artwork(song, Modifier.size(280.dp).align(Alignment.CenterHorizontally))
-        Text(song.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 16.dp))
-        Text(song.artist, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(song.album, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Slider(progress.coerceIn(0f, 1f), { player.seekTo((player.duration.coerceAtLeast(1L) * it).toLong()) })
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatTime(position))
-            Text("-${formatTime((player.duration - position).coerceAtLeast(0L))}")
+    val duration = if (player.duration > 0) player.duration else song.durationMs
+    Column(Modifier.fillMaxSize().background(Color.Black).padding(horizontal = 22.dp, vertical = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
+            Text("Now playing", color = Color(0xFFBDBDBD), modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            IconButton(onClick = onFavorite) {
+                Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, "Favorite", tint = if (favorite) Color(0xFFE53935) else Color.White)
+            }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            IconButton({ player.shuffleModeEnabled = !player.shuffleModeEnabled }) { Icon(Icons.Default.Shuffle, "Shuffle", tint = if (player.shuffleModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
-            IconButton({ player.seekToPrevious() }) { Icon(Icons.Default.SkipPrevious, "Previous") }
-            IconButton({ toggle(player) }) { Icon(if (player.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play") }
-            IconButton({ player.seekToNext() }) { Icon(Icons.Default.SkipNext, "Next") }
+        Artwork(song, Modifier.fillMaxWidth().padding(top = 18.dp).aspectRatio(1f))
+        Text(song.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 22.dp))
+        Text(song.artist, color = Color(0xFFBDBDBD), fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+        Slider(
+            value = progress.coerceIn(0f, 1f),
+            onValueChange = { player.seekTo((duration.coerceAtLeast(1L) * it).toLong()) },
+            modifier = Modifier.padding(top = 8.dp),
+            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color(0xFF3A3A3A)),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(formatTime(position), color = Color(0xFFBDBDBD), fontSize = 12.sp)
+            Text(formatTime(duration), color = Color(0xFFBDBDBD), fontSize = 12.sp)
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            IconButton({ player.shuffleModeEnabled = !player.shuffleModeEnabled }) {
+                Icon(Icons.Default.Shuffle, "Shuffle", tint = if (player.shuffleModeEnabled) Color.White else Color(0xFF8A8A8A))
+            }
+            IconButton({ player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0L)) }) {
+                Icon(Icons.Default.Replay10, "Back 10 seconds", tint = Color.White)
+            }
+            IconButton({ player.seekToPrevious() }) { Icon(Icons.Default.SkipPrevious, "Previous", tint = Color.White, modifier = Modifier.size(34.dp)) }
+            Box(
+                Modifier.size(74.dp).clip(CircleShape).background(Color.White).clickable { toggle(player) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(if (player.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(40.dp))
+            }
+            IconButton({ player.seekToNext() }) { Icon(Icons.Default.SkipNext, "Next", tint = Color.White, modifier = Modifier.size(34.dp)) }
+            IconButton({ player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration.coerceAtLeast(0L))) }) {
+                Icon(Icons.Default.Forward10, "Forward 10 seconds", tint = Color.White)
+            }
             IconButton({
                 player.repeatMode = when (player.repeatMode) {
                     Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
                     Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
                     else -> Player.REPEAT_MODE_OFF
                 }
-            }) { Icon(Icons.Default.Repeat, "Repeat", tint = if (player.repeatMode == Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary) }
+            }) {
+                Icon(Icons.Default.Repeat, "Repeat", tint = if (player.repeatMode == Player.REPEAT_MODE_OFF) Color(0xFF8A8A8A) else Color.White)
+            }
         }
-        Row {
-            IconButton(onClick = onFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, "Favorite") }
-            IconButton(onClick = onQueue) { Icon(Icons.Default.QueueMusic, "Queue") }
-        }
+        TextButton(onClick = onQueue, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Queue", color = Color(0xFFBDBDBD)) }
     }
 }
 
@@ -623,12 +656,25 @@ private fun SongRow(song: Song, onClick: () -> Unit, onMore: () -> Unit) {
 
 @Composable
 private fun Artwork(song: Song, modifier: Modifier) {
-    AsyncImage(
-        model = albumArtUri(song.albumId),
-        contentDescription = song.title,
-        modifier = modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
-        contentScale = ContentScale.Crop,
-    )
+    val context = LocalContext.current
+    val embedded by produceState<ByteArray?>(initialValue = null, song.uri) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, song.uri)
+                    retriever.embeddedPicture
+                } finally {
+                    retriever.release()
+                }
+            }.getOrNull()
+        }
+    }
+    val model = embedded ?: albumArtUri(song.albumId)
+    Box(modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xFF1C1C1C)), contentAlignment = Alignment.Center) {
+        if (embedded == null) Icon(Icons.Default.MusicNote, null, tint = Color(0xFF6E6E6E), modifier = Modifier.size(48.dp))
+        AsyncImage(model = model, contentDescription = song.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    }
 }
 
 @Composable
