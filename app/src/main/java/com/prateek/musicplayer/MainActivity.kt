@@ -167,6 +167,7 @@ private fun MusicShell() {
     val sort by app.sort.collectAsState(initial = "title")
     val sortAsc by app.sortAsc.collectAsState(initial = true)
     val pauseDisconnect by app.pauseOnDisconnect.collectAsState(initial = true)
+    val resumeOnCar by app.resumeOnCar.collectAsState(initial = true)
     val welcomeDone by app.welcomeDone.collectAsState(initial = false)
     val favorites by app.database.dao().favorites().collectAsState(initial = emptyList())
     val playlists by app.database.dao().playlists().collectAsState(initial = emptyList())
@@ -309,7 +310,9 @@ private fun MusicShell() {
                     sort = sort,
                     sortAsc = sortAsc,
                     pauseDisconnect = pauseDisconnect,
+                    resumeOnCar = resumeOnCar,
                     onTheme = { scope.launch { app.setTheme(it) } },
+                    onResumeCar = { scope.launch { app.setResumeOnCar(it) } },
                     onAmoled = { scope.launch { app.setAmoled(it) } },
                     onSort = { scope.launch { app.setSort(it) } },
                     onSortAsc = { scope.launch { app.setSortAsc(it) } },
@@ -600,7 +603,9 @@ private fun SettingsScreen(
     sort: String,
     sortAsc: Boolean,
     pauseDisconnect: Boolean,
+    resumeOnCar: Boolean,
     onTheme: (String) -> Unit,
+    onResumeCar: (Boolean) -> Unit,
     onAmoled: (Boolean) -> Unit,
     onSort: (String) -> Unit,
     onSortAsc: (Boolean) -> Unit,
@@ -619,6 +624,7 @@ private fun SettingsScreen(
         item { TextButton(onClick = onRescan) { Text("Rescan library") } }
         item { Text("Playback", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
         item { SwitchRow("Pause when unplugged", "Pause if headphones or Bluetooth disconnect", pauseDisconnect, onPause) }
+        item { SwitchRow("Resume when car connects", "Continue the last song when car audio reconnects", resumeOnCar, onResumeCar) }
         item { TextButton(onClick = onEqualizer) { Text("Open equalizer") } }
         item { Text("Sleep timer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
         item {
@@ -628,7 +634,7 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { Text("Version 2.7", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        item { Text("Version 2.8", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
         item { Text("Credit @Prateek/Lucky", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
