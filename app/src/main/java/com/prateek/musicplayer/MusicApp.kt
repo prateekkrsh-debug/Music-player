@@ -10,6 +10,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
 import com.prateek.musicplayer.data.MusicDatabase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Application.store by preferencesDataStore("player_settings")
@@ -29,6 +30,7 @@ class MusicApp : Application() {
     val sortAsc: Flow<Boolean> get() = store.data.map { it[Keys.sortAsc] ?: true }
     val excluded: Flow<Set<String>> get() = store.data.map { it[Keys.excluded] ?: emptySet() }
     val pauseOnDisconnect: Flow<Boolean> get() = store.data.map { it[Keys.pauseDisconnect] ?: true }
+    val resumeOnCar: Flow<Boolean> get() = store.data.map { it[Keys.resumeOnCar] ?: true }
     val resumeOnLaunch: Flow<Boolean> get() = store.data.map { it[Keys.resume] ?: true }
     val crossfadeSeconds: Flow<Int> get() = store.data.map { it[Keys.crossfade] ?: 0 }
     val welcomeDone: Flow<Boolean> get() = store.data.map { it[Keys.welcome] ?: false }
@@ -39,6 +41,11 @@ class MusicApp : Application() {
     suspend fun setSortAsc(value: Boolean) = store.edit { it[Keys.sortAsc] = value }
     suspend fun setExcluded(value: Set<String>) = store.edit { it[Keys.excluded] = value }
     suspend fun setPauseOnDisconnect(value: Boolean) = store.edit { it[Keys.pauseDisconnect] = value }
+    suspend fun setResumeOnCar(value: Boolean) = store.edit { it[Keys.resumeOnCar] = value }
+    suspend fun setting(key: String, default: Boolean): Boolean {
+        val pref = booleanPreferencesKey(key)
+        return store.data.first()[pref] ?: default
+    }
     suspend fun setResume(value: Boolean) = store.edit { it[Keys.resume] = value }
     suspend fun setCrossfade(seconds: Int) = store.edit { it[Keys.crossfade] = seconds }
     suspend fun setWelcomeDone() = store.edit { it[Keys.welcome] = true }
@@ -50,6 +57,7 @@ class MusicApp : Application() {
         val sortAsc = booleanPreferencesKey("sort_asc")
         val excluded = stringSetPreferencesKey("excluded")
         val pauseDisconnect = booleanPreferencesKey("pause_disconnect")
+        val resumeOnCar = booleanPreferencesKey("resume_on_car")
         val resume = booleanPreferencesKey("resume")
         val crossfade = intPreferencesKey("crossfade")
         val welcome = booleanPreferencesKey("welcome")
